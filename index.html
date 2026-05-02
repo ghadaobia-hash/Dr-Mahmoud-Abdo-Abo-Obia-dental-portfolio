@@ -9,8 +9,40 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+    <style>
+      /* Block image dragging and selection site-wide */
+      img {
+        -webkit-user-drag: none;
+        -khtml-user-drag: none;
+        -moz-user-drag: none;
+        user-drag: none;
+        -webkit-user-select: none;
+        user-select: none;
+        pointer-events: none;
+      }
+      /* Re-enable pointer events only for interactive images (lightbox clicks etc.)
+         via a utility class added in JSX where needed */
+      img.interactive {
+        pointer-events: auto;
+      }
+    </style>
   </head>
   <body>
+    <script>
+      // Block right-click context menu on images
+      document.addEventListener('contextmenu', function (e) {
+        if (e.target.tagName === 'IMG') {
+          e.preventDefault();
+          return false;
+        }
+      });
+      // Block keyboard shortcuts for saving (Ctrl+S / Cmd+S)
+      document.addEventListener('keydown', function (e) {
+        if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+          e.preventDefault();
+        }
+      });
+    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>
