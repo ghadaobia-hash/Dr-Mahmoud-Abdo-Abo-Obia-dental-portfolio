@@ -58,7 +58,7 @@ export function useSupabaseCases() {
       if (error) throw new Error(error.message);
       setCases(prev => [data, ...prev]);
       showToast('Case saved successfully!');
-      return true;
+      return data;
     } catch (err) {
       showToast(err.message, 'error');
       return false;

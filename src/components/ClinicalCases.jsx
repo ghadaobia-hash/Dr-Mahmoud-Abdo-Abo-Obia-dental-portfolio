@@ -1,10 +1,12 @@
 import { useState, useRef } from 'react';
 import {
   Plus, Pencil, Trash2, X, Upload, Search,
-  ChevronLeft, ChevronRight, Images, Lock, LogOut, Loader2
+  ChevronLeft, ChevronRight, Images, Lock, LogOut, Loader2,
+  ArrowUp, ArrowDown,
 } from 'lucide-react';
 import { useSupabaseCases } from '../hooks/useSupabaseCases';
 import { useAuth } from '../hooks/useAuth';
+import { useContent } from '../hooks/useContent';
 import PasswordGate from './PasswordGate';
 import Toast from './Toast';
 
@@ -255,6 +257,7 @@ function CaseLightbox({ caseData, onClose }) {
 // ── Main Component ────────────────────────────────────────────────────────
 export default function ClinicalCases() {
   const { cases, loading, saving, toast, addCase, updateCase, removeCase } = useSupabaseCases();
+  const { data: casesOrder, save: saveOrder } = useContent('cases_order', []);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [activeCase, setActiveCase] = useState(null);
@@ -264,6 +267,25 @@ export default function ClinicalCases() {
   const [showGate, setShowGate] = useState(false);
   const [pendingAction, setPendingAction] = useState(null);
   const { unlocked, unlock, lock } = useAuth();
+
+  // Build a stable order: stored IDs first, then any new cases appended
+  const getFullOrder = () => {
+    const stored = Array.isArray(casesOrder) ? casesOrder : [];
+    const storedSet = new Set(stored);
+    const remaining = cases.filter(c => !storedSet.has(c.id)).map(c => c.id);
+    return [...stored, ...remaining];
+  };
+
+  const moveCase = async (id, direction) => {
+    const order = getFullOrder();
+    const idx = order.indexOf(id);
+    if (idx === -1) return;
+    const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
+    if (swapIdx < 0 || swapIdx >= order.length) return;
+    const next = [...order];
+    [next[idx], next[swapIdx]] = [next[swapIdx], next[idx]];
+    await saveOrder(next);
+  };
 
   const requireAuth = (action) => {
     if (unlocked) { action(); return; }
@@ -281,8 +303,12 @@ export default function ClinicalCases() {
   };
 
   const handleAdd = async (data) => {
-    const ok = await addCase(data);
-    if (ok) setShowForm(false);
+    const newCase = await addCase(data);
+    if (newCase) {
+      // Prepend new case to the custom order
+      await saveOrder([newCase.id, ...getFullOrder().filter(id => id !== newCase.id)]);
+      setShowForm(false);
+    }
   };
 
   const handleEdit = async (data) => {
@@ -292,16 +318,23 @@ export default function ClinicalCases() {
 
   const handleDelete = async (id) => {
     await removeCase(id);
+    await saveOrder(getFullOrder().filter(oid => oid !== id));
     setDeleteConfirm(null);
   };
 
-  const filtered = cases.filter(c => {
-    const matchCat = filterCat === 'All' || c.category === filterCat;
-    const matchSearch =
-      c.title.toLowerCase().includes(search.toLowerCase()) ||
-      (c.description || '').toLowerCase().includes(search.toLowerCase());
-    return matchCat && matchSearch;
-  });
+  const filtered = (() => {
+    const order = getFullOrder();
+    const orderMap = Object.fromEntries(order.map((id, i) => [id, i]));
+    return cases
+      .filter(c => {
+        const matchCat = filterCat === 'All' || c.category === filterCat;
+        const matchSearch =
+          c.title.toLowerCase().includes(search.toLowerCase()) ||
+          (c.description || '').toLowerCase().includes(search.toLowerCase());
+        return matchCat && matchSearch;
+      })
+      .sort((a, b) => (orderMap[a.id] ?? 9999) - (orderMap[b.id] ?? 9999));
+  })();
 
   return (
     <section id="cases" className="section-bg-gray py-24">
@@ -436,6 +469,22 @@ export default function ClinicalCases() {
                         <button onClick={() => setEditingId(caseItem.id)} className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 text-slate-600 text-xs font-semibold rounded-lg hover:bg-slate-100 transition">
                           <Pencil size={12} /> Edit
                         </button>
+                        <div className="flex gap-1">
+                          <button
+                            onClick={() => moveCase(caseItem.id, 'up')}
+                            title="Move up"
+                            className="p-1.5 rounded-lg bg-slate-50 text-slate-500 hover:bg-blue-50 hover:text-blue-600 transition"
+                          >
+                            <ArrowUp size={12} />
+                          </button>
+                          <button
+                            onClick={() => moveCase(caseItem.id, 'down')}
+                            title="Move down"
+                            className="p-1.5 rounded-lg bg-slate-50 text-slate-500 hover:bg-blue-50 hover:text-blue-600 transition"
+                          >
+                            <ArrowDown size={12} />
+                          </button>
+                        </div>
                         <button onClick={() => setDeleteConfirm(caseItem.id)} className="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 text-red-500 text-xs font-semibold rounded-lg hover:bg-red-100 transition ml-auto">
                           <Trash2 size={12} /> Delete
                         </button>
