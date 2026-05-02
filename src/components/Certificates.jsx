@@ -1,7 +1,16 @@
 import { useState, useRef } from 'react';
-import { Plus, Pencil, Trash2, Eye, Award, X, Upload, Lock, LogOut, Loader2 } from 'lucide-react';
+import { Plus, Pencil, Trash2, Eye, Award, X, Upload, Lock, LogOut, Loader2, GripVertical } from 'lucide-react';
+import {
+  DndContext, closestCenter, PointerSensor, TouchSensor,
+  useSensor, useSensors, DragOverlay,
+} from '@dnd-kit/core';
+import {
+  SortableContext, useSortable, rectSortingStrategy, arrayMove,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import { useSupabaseCertificates } from '../hooks/useSupabaseCertificates';
 import { useAuth } from '../hooks/useAuth';
+import { useContent } from '../hooks/useContent';
 import PasswordGate from './PasswordGate';
 import Toast from './Toast';
 
@@ -134,16 +143,120 @@ function CertForm({ initial, onSave, onCancel, saving }) {
   );
 }
 
+// ── Cert card inner content ───────────────────────────────────────────────
+function CertCardInner({ cert, unlocked, onPreview, onEdit, onDelete, isOverlay, dragHandleProps }) {
+  return (
+    <div className={`bg-white border rounded-2xl overflow-hidden shadow-sm group ${
+      isOverlay ? 'border-blue-400 shadow-2xl rotate-1 opacity-95 cursor-grabbing' : 'border-slate-200 card-hover'
+    }`}>
+      <div className="h-36 bg-gradient-to-br from-blue-50 to-indigo-50 flex items-center justify-center relative overflow-hidden">
+        {unlocked && !isOverlay && (
+          <div
+            {...dragHandleProps}
+            className="absolute top-2 left-2 z-10 p-1.5 rounded-lg bg-black/30 text-white cursor-grab active:cursor-grabbing hover:bg-black/50 transition"
+            title="Drag to reorder"
+          >
+            <GripVertical size={15} />
+          </div>
+        )}
+        {cert.file_url && cert.file_type !== 'application/pdf' ? (
+          <img src={cert.file_url} alt={cert.title} className="w-full h-full object-cover" />
+        ) : (
+          <Award size={40} className="text-blue-200" />
+        )}
+        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/5 transition" />
+      </div>
+      <div className="p-5">
+        <h3 className="font-bold text-slate-900 text-sm leading-snug mb-1">{cert.title}</h3>
+        {cert.issuer && <p className="text-slate-500 text-xs mb-0.5">{cert.issuer}</p>}
+        {cert.date   && <p className="text-slate-400 text-xs">{cert.date}</p>}
+        <div className="flex gap-2 mt-4 pt-4 border-t border-slate-100">
+          <button onClick={onPreview} className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-600 text-xs font-semibold rounded-lg hover:bg-blue-100 transition">
+            <Eye size={13} /> Preview
+          </button>
+          {unlocked && !isOverlay && (
+            <>
+              <button onClick={onEdit} className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 text-slate-600 text-xs font-semibold rounded-lg hover:bg-slate-100 transition">
+                <Pencil size={13} /> Edit
+              </button>
+              <button onClick={onDelete} className="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 text-red-500 text-xs font-semibold rounded-lg hover:bg-red-100 transition ml-auto">
+                <Trash2 size={13} /> Delete
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Sortable wrapper ───────────────────────────────────────────────────────
+function SortableCertCard({ cert, unlocked, editingId, saving, onEdit, onCancelEdit, onSaveEdit, onDelete, onPreview, isDragging }) {
+  const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: cert.id });
+  const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.3 : 1 };
+
+  if (editingId === cert.id) {
+    return (
+      <div ref={setNodeRef} style={style}>
+        <CertForm initial={cert} onSave={onSaveEdit} onCancel={onCancelEdit} saving={saving} />
+      </div>
+    );
+  }
+  return (
+    <div ref={setNodeRef} style={style}>
+      <CertCardInner
+        cert={cert}
+        unlocked={unlocked}
+        onPreview={onPreview}
+        onEdit={onEdit}
+        onDelete={onDelete}
+        dragHandleProps={{ ...attributes, ...listeners }}
+      />
+    </div>
+  );
+}
+
 // ── Main Component ────────────────────────────────────────────────────────
 export default function Certificates() {
   const { certificates, loading, saving, toast, addCert, updateCert, removeCert } = useSupabaseCertificates();
-  const [showForm, setShowForm] = useState(false);
-  const [editingId, setEditingId] = useState(null);
-  const [previewCert, setPreviewCert] = useState(null);
+  const { data: certsOrder, save: saveOrder } = useContent('certs_order', []);
+
+  const [showForm,      setShowForm]      = useState(false);
+  const [editingId,     setEditingId]     = useState(null);
+  const [previewCert,   setPreviewCert]   = useState(null);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
-  const [showGate, setShowGate] = useState(false);
+  const [showGate,      setShowGate]      = useState(false);
   const [pendingAction, setPendingAction] = useState(null);
+  const [activeDragId,  setActiveDragId]  = useState(null);
   const { unlocked, unlock, lock } = useAuth();
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(TouchSensor,   { activationConstraint: { delay: 150, tolerance: 5 } }),
+  );
+
+  const getFullOrder = () => {
+    const stored = Array.isArray(certsOrder) ? certsOrder : [];
+    const storedSet = new Set(stored);
+    const remaining = certificates.filter(c => !storedSet.has(c.id)).map(c => c.id);
+    return [...stored, ...remaining];
+  };
+
+  const ordered = (() => {
+    const order = getFullOrder();
+    const orderMap = Object.fromEntries(order.map((id, i) => [id, i]));
+    return [...certificates].sort((a, b) => (orderMap[a.id] ?? 9999) - (orderMap[b.id] ?? 9999));
+  })();
+
+  const handleDragEnd = async ({ active, over }) => {
+    setActiveDragId(null);
+    if (!over || active.id === over.id) return;
+    const order = getFullOrder();
+    const oldIdx = order.indexOf(active.id);
+    const newIdx = order.indexOf(over.id);
+    if (oldIdx === -1 || newIdx === -1) return;
+    await saveOrder(arrayMove(order, oldIdx, newIdx));
+  };
 
   const requireAuth = (action) => {
     if (unlocked) { action(); return; }
@@ -153,16 +266,16 @@ export default function Certificates() {
 
   const handleUnlock = (pw) => {
     const ok = unlock(pw);
-    if (ok) {
-      setShowGate(false);
-      if (pendingAction) { pendingAction(); setPendingAction(null); }
-    }
+    if (ok) { setShowGate(false); if (pendingAction) { pendingAction(); setPendingAction(null); } }
     return ok;
   };
 
   const handleAdd = async (data) => {
-    const ok = await addCert(data);
-    if (ok) setShowForm(false);
+    const newCert = await addCert(data);
+    if (newCert) {
+      await saveOrder([newCert.id, ...getFullOrder().filter(id => id !== newCert.id)]);
+      setShowForm(false);
+    }
   };
 
   const handleEdit = async (data) => {
@@ -172,6 +285,7 @@ export default function Certificates() {
 
   const handleDelete = async (id) => {
     await removeCert(id);
+    await saveOrder(getFullOrder().filter(oid => oid !== id));
     setDeleteConfirm(null);
   };
 
@@ -215,14 +329,12 @@ export default function Certificates() {
           </div>
         )}
 
-        {/* Loading */}
         {loading && (
           <div className="flex justify-center py-20 text-slate-400">
             <Loader2 size={32} className="animate-spin" />
           </div>
         )}
 
-        {/* Empty state */}
         {!loading && certificates.length === 0 && !showForm && (
           <div className="text-center py-20 text-slate-400">
             <Award size={48} className="mx-auto mb-4 opacity-30" />
@@ -231,57 +343,58 @@ export default function Certificates() {
           </div>
         )}
 
-        {/* Cards */}
-        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-5">
-          {certificates.map((cert) => (
-            <div key={cert.id}>
-              {editingId === cert.id ? (
-                <CertForm initial={cert} onSave={handleEdit} onCancel={() => setEditingId(null)} saving={saving} />
-              ) : (
-                <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm card-hover group">
-                  {/* Thumbnail */}
-                  <div className="h-36 bg-gradient-to-br from-blue-50 to-indigo-50 flex items-center justify-center relative overflow-hidden">
-                    {cert.file_url && cert.file_type !== 'application/pdf' ? (
-                      <img src={cert.file_url} alt={cert.title} className="w-full h-full object-cover" />
-                    ) : (
-                      <Award size={40} className="text-blue-200" />
-                    )}
-                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/5 transition" />
-                  </div>
-                  <div className="p-5">
-                    <h3 className="font-bold text-slate-900 text-sm leading-snug mb-1">{cert.title}</h3>
-                    {cert.issuer && <p className="text-slate-500 text-xs mb-0.5">{cert.issuer}</p>}
-                    {cert.date && <p className="text-slate-400 text-xs">{cert.date}</p>}
-                    <div className="flex gap-2 mt-4 pt-4 border-t border-slate-100">
-                      <button
-                        onClick={() => setPreviewCert(cert)}
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-600 text-xs font-semibold rounded-lg hover:bg-blue-100 transition"
-                      >
-                        <Eye size={13} /> Preview
-                      </button>
-                      {unlocked && (
-                        <>
-                          <button
-                            onClick={() => setEditingId(cert.id)}
-                            className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 text-slate-600 text-xs font-semibold rounded-lg hover:bg-slate-100 transition"
-                          >
-                            <Pencil size={13} /> Edit
-                          </button>
-                          <button
-                            onClick={() => setDeleteConfirm(cert.id)}
-                            className="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 text-red-500 text-xs font-semibold rounded-lg hover:bg-red-100 transition ml-auto"
-                          >
-                            <Trash2 size={13} /> Delete
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
+        {/* Sortable grid */}
+        {unlocked ? (
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragStart={({ active }) => setActiveDragId(active.id)}
+            onDragEnd={handleDragEnd}
+            onDragCancel={() => setActiveDragId(null)}
+          >
+            <SortableContext items={ordered.map(c => c.id)} strategy={rectSortingStrategy}>
+              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-5">
+                {ordered.map(cert => (
+                  <SortableCertCard
+                    key={cert.id}
+                    cert={cert}
+                    unlocked={unlocked}
+                    editingId={editingId}
+                    saving={saving}
+                    onEdit={() => setEditingId(cert.id)}
+                    onCancelEdit={() => setEditingId(null)}
+                    onSaveEdit={handleEdit}
+                    onDelete={() => setDeleteConfirm(cert.id)}
+                    onPreview={() => setPreviewCert(cert)}
+                    isDragging={activeDragId === cert.id}
+                  />
+                ))}
+              </div>
+            </SortableContext>
+            <DragOverlay>
+              {activeDragId ? (
+                <CertCardInner
+                  cert={ordered.find(c => c.id === activeDragId)}
+                  unlocked={false}
+                  isOverlay
+                  onPreview={() => {}}
+                />
+              ) : null}
+            </DragOverlay>
+          </DndContext>
+        ) : (
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-5">
+            {ordered.map(cert => (
+              <div key={cert.id}>
+                <CertCardInner
+                  cert={cert}
+                  unlocked={false}
+                  onPreview={() => setPreviewCert(cert)}
+                />
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Delete confirmation */}
         {deleteConfirm && (
@@ -293,11 +406,7 @@ export default function Certificates() {
               </div>
               <p className="text-slate-500 text-sm mb-6">This will permanently remove it from the database.</p>
               <div className="flex gap-3">
-                <button
-                  onClick={() => handleDelete(deleteConfirm)}
-                  disabled={saving}
-                  className="flex-1 py-2.5 bg-red-500 text-white font-semibold rounded-xl text-sm hover:bg-red-600 transition flex items-center justify-center gap-2 disabled:opacity-60"
-                >
+                <button onClick={() => handleDelete(deleteConfirm)} disabled={saving} className="flex-1 py-2.5 bg-red-500 text-white font-semibold rounded-xl text-sm hover:bg-red-600 transition flex items-center justify-center gap-2 disabled:opacity-60">
                   {saving && <Loader2 size={14} className="animate-spin" />}
                   {saving ? 'Deleting…' : 'Delete'}
                 </button>

@@ -51,7 +51,7 @@ export function useSupabaseCertificates() {
       if (error) throw new Error(error.message);
       setCertificates(prev => [data, ...prev]);
       showToast('Certificate saved!');
-      return true;
+      return data;
     } catch (err) {
       showToast(err.message, 'error');
       return false;
