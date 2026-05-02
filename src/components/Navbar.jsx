@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Menu, X } from 'lucide-react';
+import { Menu, X, Lock, Unlock } from 'lucide-react';
+import { useAuth } from '../hooks/useAuth';
+import PasswordGate from './PasswordGate';
 
 const navLinks = [
   { label: 'Home', href: '#hero' },
@@ -17,6 +19,14 @@ export default function Navbar() {
   const [open, setOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [active, setActive] = useState('#hero');
+  const [showGate, setShowGate] = useState(false);
+  const { unlocked, unlock, lock } = useAuth();
+
+  const handleUnlock = (pw) => {
+    const ok = unlock(pw);
+    if (ok) setShowGate(false);
+    return ok;
+  };
 
   useEffect(() => {
     const handleScroll = () => {
@@ -79,13 +89,39 @@ export default function Navbar() {
           ))}
         </div>
 
-        <button
-          onClick={() => setOpen(!open)}
-          className="lg:hidden text-slate-300 hover:text-white p-2 rounded-lg hover:bg-white/5 transition"
-        >
-          {open ? <X size={22} /> : <Menu size={22} />}
-        </button>
+        <div className="flex items-center gap-1">
+          {unlocked ? (
+            <button
+              onClick={lock}
+              title="Lock admin session"
+              className="text-blue-400 hover:text-blue-300 p-2 rounded-lg transition"
+            >
+              <Unlock size={18} />
+            </button>
+          ) : (
+            <button
+              onClick={() => setShowGate(true)}
+              title="Admin login"
+              className="text-slate-500 hover:text-white p-2 rounded-lg transition"
+            >
+              <Lock size={18} />
+            </button>
+          )}
+          <button
+            onClick={() => setOpen(!open)}
+            className="lg:hidden text-slate-300 hover:text-white p-2 rounded-lg hover:bg-white/5 transition"
+          >
+            {open ? <X size={22} /> : <Menu size={22} />}
+          </button>
+        </div>
       </div>
+
+      {showGate && (
+        <PasswordGate
+          onSuccess={handleUnlock}
+          onClose={() => setShowGate(false)}
+        />
+      )}
 
       {open && (
         <div className="lg:hidden bg-[#060d1a]/98 backdrop-blur-xl border-t border-blue-900/20">

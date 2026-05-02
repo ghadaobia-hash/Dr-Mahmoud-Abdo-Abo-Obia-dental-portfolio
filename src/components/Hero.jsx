@@ -1,4 +1,10 @@
-import { ChevronDown, Microscope, Layers, Cpu, Heart } from 'lucide-react';
+import { useState } from 'react';
+import { ChevronDown, Microscope, Layers, Cpu, Heart, Pencil, Check, X as XIcon } from 'lucide-react';
+import { useAuth } from '../hooks/useAuth';
+import { useContent } from '../hooks/useContent';
+
+const DEFAULT_SUBTITLE =
+  'Passionate dental professional specializing in implantology, digital guided surgery, and CAD/CAM workflows — bridging clinical excellence with cutting-edge dental technology.';
 
 const tags = [
   { icon: <Microscope size={14} />, label: 'Implantology' },
@@ -10,6 +16,21 @@ const tags = [
 export default function Hero() {
   const scrollTo = (id) => {
     document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  const { unlocked } = useAuth();
+  const { data: subtitle, save: saveSubtitle, saving: savingSubtitle } = useContent('hero_subtitle', DEFAULT_SUBTITLE);
+  const [editingSubtitle, setEditingSubtitle] = useState(false);
+  const [subtitleText, setSubtitleText] = useState('');
+
+  const startEdit = () => {
+    setSubtitleText(subtitle);
+    setEditingSubtitle(true);
+  };
+
+  const handleSave = async () => {
+    await saveSubtitle(subtitleText);
+    setEditingSubtitle(false);
   };
 
   return (
@@ -41,7 +62,7 @@ export default function Hero() {
         <div className="flex flex-col items-center gap-2 mb-8">
           <p className="text-slate-400 text-xs font-medium tracking-widest uppercase">Check my digital work</p>
           <a
-            href="https://www.linkedin.com/in/mahmoud-abdo-abo-obia"
+            href="https://www.linkedin.com/in/dr-mahmoud-abo-obiaa-b553412aa/"
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-2 px-5 py-2 rounded-full glass border border-blue-500/30 text-blue-300 hover:text-white hover:border-blue-400/60 text-sm font-medium transition-all duration-300 hover:-translate-y-0.5"
@@ -61,13 +82,46 @@ export default function Hero() {
         </h1>
 
         {/* Subtitle */}
-        <p className="text-slate-400 text-lg sm:text-xl max-w-2xl mx-auto mb-8 leading-relaxed">
-          Passionate dental professional specializing in{' '}
-          <span className="text-blue-300 font-medium">implantology</span>,{' '}
-          <span className="text-blue-300 font-medium">digital guided surgery</span>, and{' '}
-          <span className="text-blue-300 font-medium">CAD/CAM workflows</span> — bridging
-          clinical excellence with cutting-edge dental technology.
-        </p>
+        <div className="max-w-2xl mx-auto mb-8">
+          {editingSubtitle ? (
+            <div>
+              <textarea
+                value={subtitleText}
+                onChange={(e) => setSubtitleText(e.target.value)}
+                rows={4}
+                className="w-full p-4 bg-white/10 border border-white/20 rounded-xl text-slate-200 text-sm leading-relaxed resize-y focus:outline-none focus:ring-2 focus:ring-blue-400"
+              />
+              <div className="flex gap-2 mt-2 justify-center">
+                <button
+                  onClick={handleSave}
+                  disabled={savingSubtitle}
+                  className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-lg transition disabled:opacity-50"
+                >
+                  <Check size={14} /> {savingSubtitle ? 'Saving…' : 'Save'}
+                </button>
+                <button
+                  onClick={() => setEditingSubtitle(false)}
+                  className="flex items-center gap-1.5 px-4 py-2 bg-white/10 border border-white/20 text-white text-sm rounded-lg hover:bg-white/20 transition"
+                >
+                  <XIcon size={14} /> Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-start gap-2 justify-center">
+              <p className="text-slate-400 text-lg sm:text-xl leading-relaxed">{subtitle}</p>
+              {unlocked && (
+                <button
+                  onClick={startEdit}
+                  title="Edit subtitle"
+                  className="shrink-0 mt-1 p-1.5 rounded-lg text-slate-500 hover:text-blue-400 hover:bg-white/10 transition"
+                >
+                  <Pencil size={14} />
+                </button>
+              )}
+            </div>
+          )}
+        </div>
 
         {/* Tags */}
         <div className="flex flex-wrap gap-2 justify-center mb-12">

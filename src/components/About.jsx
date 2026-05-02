@@ -1,10 +1,17 @@
-import { useRef } from 'react';
-import { UserCircle, Target, Zap, Camera, Trash2, LogOut, Loader2 } from 'lucide-react';
+import { useRef, useState } from 'react';
+import { UserCircle, Target, Zap, Camera, Trash2, LogOut, Loader2, Pencil, Check, X as XIcon } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { useProfilePhoto } from '../hooks/useProfilePhoto';
+import { useContent } from '../hooks/useContent';
 import PasswordGate from './PasswordGate';
 import Toast from './Toast';
-import { useState } from 'react';
+
+const DEFAULT_BIO = [
+  'Motivated dentist graduated from Faculty of Dentistry, Egyptian Russian University.',
+  'My focus areas include implantology, fixed prosthodontics, digital guided surgery, CAD/CAM workflows, restorative dentistry, biomimetic dentistry, and occlusion.',
+  'With hands-on experience producing over 1,000 surgical guides and training at specialized academies, I combine theoretical knowledge with real-world clinical application to achieve precise, predictable outcomes.',
+  'I am deeply committed to continuous education, ethical practice, and integrating the latest digital technologies into everyday dentistry to deliver the best possible results for patients.',
+];
 
 const highlights = [
   { icon: <Target size={18} />, title: 'Goal-Oriented', desc: 'Focused on mastering full-arch implant workflows and digital surgery.' },
@@ -18,6 +25,22 @@ export default function About() {
   const [pendingAction, setPendingAction] = useState(null);
   const fileRef = useRef();
   const { unlocked, unlock, lock } = useAuth();
+
+  const { data: bioParagraphs, save: saveBio, saving: savingBio } = useContent('about_bio', DEFAULT_BIO);
+  const [editingBio, setEditingBio] = useState(false);
+  const [bioText, setBioText] = useState('');
+
+  const startEditBio = () => {
+    const paragraphs = Array.isArray(bioParagraphs) ? bioParagraphs : [bioParagraphs];
+    setBioText(paragraphs.join('\n\n'));
+    setEditingBio(true);
+  };
+
+  const handleSaveBio = async () => {
+    const paragraphs = bioText.split('\n\n').map((p) => p.trim()).filter(Boolean);
+    await saveBio(paragraphs);
+    setEditingBio(false);
+  };
 
   const requireAuth = (action) => {
     if (unlocked) { action(); return; }
@@ -129,27 +152,50 @@ export default function About() {
 
           {/* ── Bio ──────────────────────────────────────────────────── */}
           <div className="space-y-5 text-slate-600 leading-relaxed">
-            <p className="text-lg text-slate-700">
-              Motivated dentist graduated from Faculty of Dentistry, Egyptian Russian University.
-            </p>
-            <p>
-              My focus areas include <strong className="text-slate-800">implantology</strong>,{' '}
-              <strong className="text-slate-800">fixed prosthodontics</strong>{' '}
-              <strong className="text-slate-800">digital guided surgery</strong>,{' '}
-              <strong className="text-slate-800">CAD/CAM workflows</strong>,{' '}
-              <strong className="text-slate-800">restorative dentistry</strong>,{' '}
-              <strong className="text-slate-800">biomimetic dentistry</strong>, and{' '}
-              <strong className="text-slate-800">occlusion</strong>.
-            </p>
-            <p>
-              With hands-on experience producing over 1,000 surgical guides and training at specialized
-              academies, I combine theoretical knowledge with real-world clinical application to achieve
-              precise, predictable outcomes.
-            </p>
-            <p>
-              I am deeply committed to continuous education, ethical practice, and integrating the latest
-              digital technologies into everyday dentistry to deliver the best possible results for patients.
-            </p>
+            <div className="flex gap-2 items-start">
+              <div className="flex-1">
+                {editingBio ? (
+                  <div>
+                    <textarea
+                      value={bioText}
+                      onChange={(e) => setBioText(e.target.value)}
+                      rows={12}
+                      className="w-full p-4 border border-blue-300 rounded-xl text-slate-700 text-sm leading-relaxed resize-y focus:outline-none focus:ring-2 focus:ring-blue-400"
+                      placeholder="Write each paragraph separated by a blank line…"
+                    />
+                    <p className="text-xs text-slate-400 mt-1">Tip: separate paragraphs with a blank line.</p>
+                    <div className="flex gap-2 mt-3">
+                      <button
+                        onClick={handleSaveBio}
+                        disabled={savingBio}
+                        className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-lg transition disabled:opacity-50"
+                      >
+                        <Check size={14} /> {savingBio ? 'Saving…' : 'Save'}
+                      </button>
+                      <button
+                        onClick={() => setEditingBio(false)}
+                        className="flex items-center gap-1.5 px-4 py-2 border border-slate-300 text-slate-600 text-sm rounded-lg hover:bg-slate-50 transition"
+                      >
+                        <XIcon size={14} /> Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  (Array.isArray(bioParagraphs) ? bioParagraphs : [bioParagraphs]).map((p, i) => (
+                    <p key={i} className={i === 0 ? 'text-lg text-slate-700' : ''}>{p}</p>
+                  ))
+                )}
+              </div>
+              {unlocked && !editingBio && (
+                <button
+                  onClick={startEditBio}
+                  title="Edit bio"
+                  className="shrink-0 mt-1 p-2 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition"
+                >
+                  <Pencil size={16} />
+                </button>
+              )}
+            </div>
           </div>
         </div>
 
