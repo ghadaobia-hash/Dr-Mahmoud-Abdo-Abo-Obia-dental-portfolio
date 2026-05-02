@@ -18,8 +18,24 @@ import PasswordGate from './PasswordGate';
 import Toast from './Toast';
 
 const CATEGORIES = [
-  'All', 'Full-Arch', 'Single Implant', 'Multiple Implants',
-  'Immediate Loading', 'Bone Grafting', 'Sinus Lift', 'Other',
+  'All',
+  'PSI',
+  'Custom Implant',
+  'Custom Mesh',
+  'Zygoma Guide',
+  'Pterygoid Guide',
+  'Stackable Guide',
+  'Scalloped Guide',
+  'PET / Socket Shield Guide',
+  'Sinus Lifting Guide',
+  'Autotransplantation Guide',
+  'Perio Guide',
+  'Bone Guide',
+  'Tissue Guide',
+  'Dual Scan Guide',
+  'Endo Calcification Guide',
+  'Bar Design',
+  'Other',
 ];
 
 // ── Image upload field ─────────────────────────────────────────────────────
@@ -59,7 +75,7 @@ function ImageUploadField({ label, value, onChange }) {
 // ── Case form ──────────────────────────────────────────────────────────────
 function CaseForm({ initial, onSave, onCancel, saving }) {
   const [title,    setTitle]    = useState(initial?.title || '');
-  const [category, setCategory] = useState(initial?.category || 'Full-Arch');
+  const [category, setCategory] = useState(initial?.category || 'PSI');
   const [desc,     setDesc]     = useState(initial?.description || '');
   const [date,     setDate]     = useState(initial?.date || '');
   const [before,   setBefore]   = useState(initial?.before_url ? { preview: initial.before_url, file: null } : null);

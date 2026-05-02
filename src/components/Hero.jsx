@@ -142,7 +142,13 @@ export default function Hero() {
             onClick={() => scrollTo('cases')}
             className="px-8 py-3.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-semibold rounded-xl shadow-lg shadow-blue-500/25 transition-all duration-300 hover:shadow-blue-500/40 hover:-translate-y-0.5"
           >
-            View Cases
+            View Clinical Cases
+          </button>
+          <button
+            onClick={() => scrollTo('digital-cases')}
+            className="px-8 py-3.5 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white font-semibold rounded-xl shadow-lg shadow-indigo-500/25 transition-all duration-300 hover:shadow-indigo-500/40 hover:-translate-y-0.5"
+          >
+            View Digital Cases
           </button>
           <button
             onClick={() => scrollTo('contact')}
