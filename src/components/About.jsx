@@ -114,7 +114,7 @@ export default function About() {
             {/* Name + lock button */}
             <div>
               <h3 className="text-2xl font-bold text-slate-900">Mahmoud Abdo Abo Obia</h3>
-              <p className="text-blue-600 font-medium mt-1">Final-Year Dentist</p>
+              <p className="text-blue-600 font-medium mt-1">Dentist</p>
               <p className="text-slate-500 text-sm mt-0.5">Egyptian Russian University · Faculty of Dentistry</p>
               {unlocked && (
                 <button
@@ -130,11 +130,11 @@ export default function About() {
           {/* ── Bio ──────────────────────────────────────────────────── */}
           <div className="space-y-5 text-slate-600 leading-relaxed">
             <p className="text-lg text-slate-700">
-              I am a final-year dentist in the clinical training year at the Faculty of Dentistry,
-              Egyptian Russian University, with a strong passion for advanced and digital dentistry.
+              Motivated dentist graduated from Faculty of Dentistry, Egyptian Russian University.
             </p>
             <p>
               My focus areas include <strong className="text-slate-800">implantology</strong>,{' '}
+              <strong className="text-slate-800">fixed prosthodontics</strong>{' '}
               <strong className="text-slate-800">digital guided surgery</strong>,{' '}
               <strong className="text-slate-800">CAD/CAM workflows</strong>,{' '}
               <strong className="text-slate-800">restorative dentistry</strong>,{' '}
