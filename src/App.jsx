@@ -6,6 +6,7 @@ import Experience from './components/Experience';
 import Skills from './components/Skills';
 import Courses from './components/Courses';
 import ClinicalCases from './components/ClinicalCases';
+import DigitalCases from './components/DigitalCases';
 import Certificates from './components/Certificates';
 import Contact from './components/Contact';
 
@@ -20,6 +21,7 @@ export default function App() {
       <Skills />
       <Courses />
       <ClinicalCases />
+      <DigitalCases />
       <Certificates />
       <Contact />
     </div>

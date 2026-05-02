@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import {
   Stethoscope, Monitor, Layers, BookOpen, Hospital,
-  Trophy, GraduationCap, Plus, X, Pencil, Check, Loader2,
+  Trophy, GraduationCap, Plus, X, Pencil, Check, Loader2, Settings,
 } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { useContent } from '../hooks/useContent';
@@ -26,7 +26,7 @@ const DEFAULT_EXPERIENCES = [
 
 const BLANK = { title: '', org: '', type: '', desc: '' };
 
-const STATS = [
+const DEFAULT_STATS = [
   { value: '1,000+', label: 'Surgical Guides' },
   { value: '5+',     label: 'Training Programs' },
   { value: '2',      label: 'Institutions' },
@@ -70,10 +70,13 @@ function ExperienceForm({ form, setForm, onSave, onCancel, saving }) {
 
 export default function Experience() {
   const { unlocked } = useAuth();
-  const { data: experiences, save, saving } = useContent('experiences', DEFAULT_EXPERIENCES);
+  const { data: experiences, save, saving }       = useContent('experiences', DEFAULT_EXPERIENCES);
+  const { data: stats,       save: saveStats }    = useContent('exp_stats',   DEFAULT_STATS);
 
-  const [editIdx, setEditIdx] = useState(null);
-  const [form, setForm]       = useState(BLANK);
+  const [editIdx, setEditIdx]         = useState(null);
+  const [form, setForm]               = useState(BLANK);
+  const [editingStats, setEditingStats] = useState(false);
+  const [statsForm, setStatsForm]     = useState([]);
 
   const startEdit = (i) => { setForm({ ...experiences[i] }); setEditIdx(i); };
   const startAdd  = ()  => { setForm(BLANK); setEditIdx('new'); };
@@ -103,13 +106,64 @@ export default function Experience() {
         </div>
 
         {/* Stats */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-16">
-          {STATS.map(({ value, label }) => (
-            <div key={label} className="text-center p-5 rounded-2xl bg-gradient-to-br from-blue-50 to-indigo-50 border border-blue-100">
-              <div className="text-3xl font-bold text-blue-700 mb-1">{value}</div>
-              <div className="text-slate-500 text-sm font-medium">{label}</div>
+        <div className="mb-16">
+          {editingStats ? (
+            <div className="bg-blue-50 border border-blue-200 rounded-2xl p-6">
+              <p className="text-sm font-semibold text-slate-600 mb-4">Edit Stats</p>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+                {statsForm.map((stat, i) => (
+                  <div key={i} className="flex flex-col gap-2">
+                    <input
+                      value={stat.value}
+                      onChange={e => setStatsForm(f => f.map((s, j) => j === i ? { ...s, value: e.target.value } : s))}
+                      placeholder="e.g. 1,000+"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-center text-blue-700 font-bold text-lg focus:outline-none focus:ring-2 focus:ring-blue-400"
+                    />
+                    <input
+                      value={stat.label}
+                      onChange={e => setStatsForm(f => f.map((s, j) => j === i ? { ...s, label: e.target.value } : s))}
+                      placeholder="Label"
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-center text-slate-600 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                    />
+                  </div>
+                ))}
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={async () => { await saveStats(statsForm); setEditingStats(false); }}
+                  className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-lg transition"
+                >
+                  <Check size={14} /> Save
+                </button>
+                <button
+                  onClick={() => setEditingStats(false)}
+                  className="px-4 py-2 border border-slate-300 text-slate-600 text-sm rounded-lg hover:bg-slate-50 transition"
+                >
+                  Cancel
+                </button>
+              </div>
             </div>
-          ))}
+          ) : (
+            <div className="relative">
+              {unlocked && (
+                <button
+                  onClick={() => { setStatsForm(stats.map(s => ({ ...s }))); setEditingStats(true); }}
+                  title="Edit stats"
+                  className="absolute -top-2 -right-2 p-2 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition z-10"
+                >
+                  <Settings size={16} />
+                </button>
+              )}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                {stats.map(({ value, label }, i) => (
+                  <div key={i} className="text-center p-5 rounded-2xl bg-gradient-to-br from-blue-50 to-indigo-50 border border-blue-100">
+                    <div className="text-3xl font-bold text-blue-700 mb-1">{value}</div>
+                    <div className="text-slate-500 text-sm font-medium">{label}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Admin controls */}

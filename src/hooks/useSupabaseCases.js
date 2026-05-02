@@ -1,14 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase, resolveField } from '../lib/supabaseClient';
 
-// Supabase table name
-const TABLE = 'clinical_cases';
-
-export function useSupabaseCases() {
-  const [cases, setCases]   = useState([]);
+export function useSupabaseCases(tableName = 'clinical_cases') {
+  const [cases, setCases]     = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving,  setSaving]  = useState(false);
-  const [toast,   setToast]   = useState(null); // { message, type }
+  const [toast,   setToast]   = useState(null);
 
   const showToast = (message, type = 'success') => {
     setToast({ message, type });
@@ -19,14 +16,14 @@ export function useSupabaseCases() {
   const fetchCases = useCallback(async () => {
     setLoading(true);
     const { data, error } = await supabase
-      .from(TABLE)
+      .from(tableName)
       .select('*')
       .order('created_at', { ascending: false });
 
     if (error) showToast('Failed to load cases: ' + error.message, 'error');
     else setCases(data || []);
     setLoading(false);
-  }, []);
+  }, [tableName]);
 
   useEffect(() => { fetchCases(); }, [fetchCases]);
 
@@ -34,7 +31,6 @@ export function useSupabaseCases() {
   const addCase = async (formData) => {
     setSaving(true);
     try {
-      // Upload all images in parallel
       const [beforeUrl, afterUrl, ...extraUrls] = await Promise.all([
         resolveField(formData.before, 'cases'),
         resolveField(formData.after,  'cases'),
@@ -42,7 +38,7 @@ export function useSupabaseCases() {
       ]);
 
       const { data, error } = await supabase
-        .from(TABLE)
+        .from(tableName)
         .insert([{
           title:       formData.title,
           category:    formData.category,
@@ -78,7 +74,7 @@ export function useSupabaseCases() {
       ]);
 
       const { data, error } = await supabase
-        .from(TABLE)
+        .from(tableName)
         .update({
           title:       formData.title,
           category:    formData.category,
@@ -108,7 +104,7 @@ export function useSupabaseCases() {
   const removeCase = async (id) => {
     setSaving(true);
     try {
-      const { error } = await supabase.from(TABLE).delete().eq('id', id);
+      const { error } = await supabase.from(tableName).delete().eq('id', id);
       if (error) throw new Error(error.message);
       setCases(prev => prev.filter(c => c.id !== id));
       showToast('Case deleted.');

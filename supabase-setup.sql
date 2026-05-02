@@ -28,7 +28,27 @@ CREATE TABLE IF NOT EXISTS clinical_cases (
 );
 
 
--- ── TABLE 3: certificates ─────────────────────────────────────────────────────
+-- ── TABLE 3: digital_cases ───────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS digital_cases (
+  id          UUID        DEFAULT gen_random_uuid() PRIMARY KEY,
+  title       TEXT        NOT NULL,
+  category    TEXT        DEFAULT 'Other',
+  description TEXT,
+  date        TEXT,
+  before_url  TEXT,
+  after_url   TEXT,
+  extras      TEXT[]      DEFAULT '{}',
+  created_at  TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE digital_cases ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "select digital_cases" ON digital_cases FOR SELECT USING (true);
+CREATE POLICY "insert digital_cases" ON digital_cases FOR INSERT WITH CHECK (true);
+CREATE POLICY "update digital_cases" ON digital_cases FOR UPDATE USING (true);
+CREATE POLICY "delete digital_cases" ON digital_cases FOR DELETE USING (true);
+
+
+-- ── TABLE 4: certificates ─────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS certificates (
   id         UUID        DEFAULT gen_random_uuid() PRIMARY KEY,
   title      TEXT        NOT NULL,
