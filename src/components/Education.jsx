@@ -5,9 +5,9 @@ const education = [
     icon: <GraduationCap size={22} />,
     degree: "Bachelor's Degree of Oral & Dental Surgery Program",
     institution: 'Faculty of Dentistry – Egyptian Russian University',
-    period: '2020 – Present',
-    detail: 'Final Year · Clinical Training Year',
-    gpa: 'GPA: 3.3',
+    period: '2020 – 2025',
+    detail: null,
+    gpa: null,
     color: 'from-blue-600 to-indigo-700',
     highlight: true,
   },
@@ -57,7 +57,7 @@ export default function Education() {
                       <div>
                         <h3 className="text-xl font-bold text-slate-900">{degree}</h3>
                         <p className="text-blue-600 font-semibold mt-1">{institution}</p>
-                        <p className="text-slate-500 text-sm mt-1">{detail}</p>
+                        {detail && <p className="text-slate-500 text-sm mt-1">{detail}</p>}
                       </div>
                       <div className="text-right shrink-0">
                         <div className="flex items-center gap-1.5 text-slate-500 text-sm">
