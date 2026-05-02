@@ -1,9 +1,10 @@
-import { useRef, useState } from 'react';
-import { UserCircle, Target, Zap, Camera, Trash2, LogOut } from 'lucide-react';
+import { useRef } from 'react';
+import { UserCircle, Target, Zap, Camera, Trash2, LogOut, Loader2 } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
+import { useProfilePhoto } from '../hooks/useProfilePhoto';
 import PasswordGate from './PasswordGate';
-
-const PHOTO_KEY = 'portfolio_profile_photo';
+import Toast from './Toast';
+import { useState } from 'react';
 
 const highlights = [
   { icon: <Target size={18} />, title: 'Goal-Oriented', desc: 'Focused on mastering full-arch implant workflows and digital surgery.' },
@@ -12,7 +13,7 @@ const highlights = [
 ];
 
 export default function About() {
-  const [photo, setPhoto] = useState(() => localStorage.getItem(PHOTO_KEY) || null);
+  const { photoUrl, loading, saving, toast, uploadPhoto, removePhoto } = useProfilePhoto();
   const [showGate, setShowGate] = useState(false);
   const [pendingAction, setPendingAction] = useState(null);
   const fileRef = useRef();
@@ -33,21 +34,12 @@ export default function About() {
     return ok;
   };
 
+  // Admin picks a file → upload to Supabase
   const handleFileChange = (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const data = ev.target.result;
-      setPhoto(data);
-      localStorage.setItem(PHOTO_KEY, data);
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const handleRemovePhoto = () => {
-    setPhoto(null);
-    localStorage.removeItem(PHOTO_KEY);
+    uploadPhoto(file);
+    e.target.value = ''; // reset so same file can be re-selected
   };
 
   return (
@@ -60,32 +52,43 @@ export default function About() {
         </div>
 
         <div className="grid lg:grid-cols-2 gap-16 items-center">
-          {/* Avatar block */}
+          {/* ── Avatar block ─────────────────────────────────────────── */}
           <div className="flex flex-col items-center lg:items-start gap-6">
             <div className="relative group">
-              {/* Photo or initials */}
+              {/* Photo / initials / loading */}
               <div className="w-44 h-44 rounded-2xl overflow-hidden shadow-2xl shadow-blue-500/20 bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center">
-                {photo ? (
-                  <img src={photo} alt="Profile" className="w-full h-full object-cover" />
+                {loading ? (
+                  <Loader2 size={32} className="text-white/60 animate-spin" />
+                ) : photoUrl ? (
+                  <img src={photoUrl} alt="Profile" className="w-full h-full object-cover" />
                 ) : (
                   <span className="text-white text-5xl font-bold">MA</span>
                 )}
+
+                {/* Saving spinner overlay */}
+                {saving && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/50 rounded-2xl">
+                    <Loader2 size={28} className="text-white animate-spin" />
+                  </div>
+                )}
               </div>
 
-              {/* Camera overlay — always visible to admin, hover for others */}
-              <button
-                onClick={() => requireAuth(() => fileRef.current.click())}
-                className="absolute inset-0 rounded-2xl flex flex-col items-center justify-center gap-1.5 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
-                title="Upload profile photo"
-              >
-                <Camera size={24} className="text-white" />
-                <span className="text-white text-xs font-semibold">Change Photo</span>
-              </button>
-
-              {/* Remove button (only when photo exists and unlocked) */}
-              {photo && unlocked && (
+              {/* Camera overlay on hover — triggers auth then file picker */}
+              {!saving && (
                 <button
-                  onClick={handleRemovePhoto}
+                  onClick={() => requireAuth(() => fileRef.current.click())}
+                  className="absolute inset-0 rounded-2xl flex flex-col items-center justify-center gap-1.5 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                  title="Upload profile photo"
+                >
+                  <Camera size={24} className="text-white" />
+                  <span className="text-white text-xs font-semibold">Change Photo</span>
+                </button>
+              )}
+
+              {/* Remove button — only when photo exists and admin is logged in */}
+              {photoUrl && unlocked && !saving && (
+                <button
+                  onClick={removePhoto}
                   className="absolute -top-2 -right-2 w-8 h-8 rounded-full bg-red-500 hover:bg-red-600 flex items-center justify-center shadow-lg transition"
                   title="Remove photo"
                 >
@@ -93,6 +96,7 @@ export default function About() {
                 </button>
               )}
 
+              {/* Tooth badge */}
               <div className="absolute -bottom-3 -right-3 w-10 h-10 rounded-xl bg-blue-500 flex items-center justify-center shadow-lg">
                 <span className="text-white text-xl">🦷</span>
               </div>
@@ -107,6 +111,7 @@ export default function About() {
               />
             </div>
 
+            {/* Name + lock button */}
             <div>
               <h3 className="text-2xl font-bold text-slate-900">Mahmoud Abdo Abo Obia</h3>
               <p className="text-blue-600 font-medium mt-1">Final-Year Dentist</p>
@@ -115,7 +120,6 @@ export default function About() {
                 <button
                   onClick={lock}
                   className="mt-4 flex items-center gap-1.5 px-4 py-2 rounded-xl border border-slate-300 text-slate-500 text-sm hover:bg-slate-100 transition"
-                  title="Lock admin session"
                 >
                   <LogOut size={14} /> Lock Session
                 </button>
@@ -123,7 +127,7 @@ export default function About() {
             </div>
           </div>
 
-          {/* Bio */}
+          {/* ── Bio ──────────────────────────────────────────────────── */}
           <div className="space-y-5 text-slate-600 leading-relaxed">
             <p className="text-lg text-slate-700">
               I am a final-year dentist in the clinical training year at the Faculty of Dentistry,
@@ -149,13 +153,10 @@ export default function About() {
           </div>
         </div>
 
-        {/* Highlights */}
+        {/* ── Highlights ───────────────────────────────────────────────── */}
         <div className="grid md:grid-cols-3 gap-6 mt-16">
           {highlights.map(({ icon, title, desc }) => (
-            <div
-              key={title}
-              className="p-6 rounded-2xl bg-slate-50 border border-slate-200 card-hover group"
-            >
+            <div key={title} className="p-6 rounded-2xl bg-slate-50 border border-slate-200 card-hover group">
               <div className="w-10 h-10 rounded-xl bg-blue-100 text-blue-600 flex items-center justify-center mb-4 group-hover:bg-blue-600 group-hover:text-white transition-colors">
                 {icon}
               </div>
@@ -172,6 +173,8 @@ export default function About() {
           onClose={() => { setShowGate(false); setPendingAction(null); }}
         />
       )}
+
+      {toast && <Toast message={toast.message} type={toast.type} onClose={() => {}} />}
     </section>
   );
 }

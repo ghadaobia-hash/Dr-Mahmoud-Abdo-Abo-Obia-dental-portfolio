@@ -1,9 +1,11 @@
 import { useState, useRef } from 'react';
-import { Plus, Pencil, Trash2, Eye, Award, X, Upload, Lock, LogOut } from 'lucide-react';
-import { useCertificates } from '../hooks/useStorage';
+import { Plus, Pencil, Trash2, Eye, Award, X, Upload, Lock, LogOut, Loader2 } from 'lucide-react';
+import { useSupabaseCertificates } from '../hooks/useSupabaseCertificates';
 import { useAuth } from '../hooks/useAuth';
 import PasswordGate from './PasswordGate';
+import Toast from './Toast';
 
+// ── Certificate preview modal ─────────────────────────────────────────────
 function CertModal({ cert, onClose }) {
   if (!cert) return null;
   return (
@@ -22,12 +24,12 @@ function CertModal({ cert, onClose }) {
           </div>
         </div>
         {cert.date && <p className="text-sm text-slate-500 mb-4">Date: {cert.date}</p>}
-        {cert.fileData && (
-          cert.fileType === 'application/pdf'
-            ? <iframe src={cert.fileData} className="w-full h-64 rounded-xl border border-slate-200" title="Certificate PDF" />
-            : <img src={cert.fileData} alt={cert.title} className="w-full rounded-xl border border-slate-200 object-contain max-h-80" />
+        {cert.file_url && (
+          cert.file_type === 'application/pdf'
+            ? <iframe src={cert.file_url} className="w-full h-64 rounded-xl border border-slate-200" title="Certificate PDF" />
+            : <img src={cert.file_url} alt={cert.title} className="w-full rounded-xl border border-slate-200 object-contain max-h-80" />
         )}
-        {!cert.fileData && (
+        {!cert.file_url && (
           <div className="flex items-center justify-center h-32 bg-slate-50 rounded-xl border border-dashed border-slate-200 text-slate-400 text-sm">
             No preview available
           </div>
@@ -37,31 +39,32 @@ function CertModal({ cert, onClose }) {
   );
 }
 
-function CertForm({ initial, onSave, onCancel }) {
+// ── Certificate form ──────────────────────────────────────────────────────
+function CertForm({ initial, onSave, onCancel, saving }) {
   const [title, setTitle] = useState(initial?.title || '');
   const [issuer, setIssuer] = useState(initial?.issuer || '');
   const [date, setDate] = useState(initial?.date || '');
-  const [fileData, setFileData] = useState(initial?.fileData || null);
-  const [fileType, setFileType] = useState(initial?.fileType || null);
-  const [fileName, setFileName] = useState(initial?.fileName || '');
+  // fileField: { preview: string, file: File|null, fileType: string, fileName: string } | null
+  const [fileField, setFileField] = useState(
+    initial?.file_url
+      ? { preview: initial.file_url, file: null, fileType: initial.file_type, fileName: initial.file_name }
+      : null
+  );
   const fileRef = useRef();
 
   const handleFile = (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      setFileData(ev.target.result);
-      setFileType(file.type);
-      setFileName(file.name);
-    };
-    reader.readAsDataURL(file);
+    const preview = file.type === 'application/pdf'
+      ? null  // PDFs can't be previewed via object URL easily
+      : URL.createObjectURL(file);
+    setFileField({ preview, file, fileType: file.type, fileName: file.name });
   };
 
   const handleSubmit = (e) => {
     e.preventDefault();
     if (!title.trim()) return;
-    onSave({ title, issuer, date, fileData, fileType, fileName });
+    onSave({ title, issuer, date, fileField });
   };
 
   return (
@@ -74,7 +77,7 @@ function CertForm({ initial, onSave, onCancel }) {
             value={title}
             onChange={e => setTitle(e.target.value)}
             placeholder="e.g. Implant Dentistry Certificate"
-            className="w-full px-4 py-2.5 rounded-xl border border-slate-300 text-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+            className="w-full px-4 py-2.5 rounded-xl border border-slate-300 text-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
           />
         </div>
         <div>
@@ -83,7 +86,7 @@ function CertForm({ initial, onSave, onCancel }) {
             value={issuer}
             onChange={e => setIssuer(e.target.value)}
             placeholder="e.g. University of Hong Kong"
-            className="w-full px-4 py-2.5 rounded-xl border border-slate-300 text-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+            className="w-full px-4 py-2.5 rounded-xl border border-slate-300 text-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
           />
         </div>
         <div>
@@ -92,7 +95,7 @@ function CertForm({ initial, onSave, onCancel }) {
             type="date"
             value={date}
             onChange={e => setDate(e.target.value)}
-            className="w-full px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+            className="w-full px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
           />
         </div>
         <div>
@@ -104,15 +107,26 @@ function CertForm({ initial, onSave, onCancel }) {
             className="w-full px-4 py-2.5 rounded-xl border border-dashed border-blue-400 text-blue-600 text-sm hover:bg-blue-50 transition flex items-center justify-center gap-2"
           >
             <Upload size={16} />
-            {fileName || 'Choose File'}
+            {fileField?.fileName || fileField?.file?.name || 'Choose File'}
           </button>
         </div>
       </div>
+
       <div className="flex gap-3 pt-2">
-        <button type="submit" className="px-6 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-sm font-semibold rounded-xl hover:opacity-90 transition">
-          Save Certificate
+        <button
+          type="submit"
+          disabled={saving}
+          className="flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-sm font-semibold rounded-xl hover:opacity-90 transition disabled:opacity-60"
+        >
+          {saving && <Loader2 size={15} className="animate-spin" />}
+          {saving ? 'Saving…' : 'Save Certificate'}
         </button>
-        <button type="button" onClick={onCancel} className="px-6 py-2.5 border border-slate-300 text-slate-600 text-sm font-semibold rounded-xl hover:bg-slate-100 transition">
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={saving}
+          className="px-6 py-2.5 border border-slate-300 text-slate-600 text-sm font-semibold rounded-xl hover:bg-slate-100 transition disabled:opacity-60"
+        >
           Cancel
         </button>
       </div>
@@ -120,8 +134,9 @@ function CertForm({ initial, onSave, onCancel }) {
   );
 }
 
+// ── Main Component ────────────────────────────────────────────────────────
 export default function Certificates() {
-  const [certificates, setCertificates] = useCertificates();
+  const { certificates, loading, saving, toast, addCert, updateCert, removeCert } = useSupabaseCertificates();
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [previewCert, setPreviewCert] = useState(null);
@@ -145,19 +160,18 @@ export default function Certificates() {
     return ok;
   };
 
-  const handleAdd = (data) => {
-    const newCert = { ...data, id: Date.now().toString() };
-    setCertificates([...certificates, newCert]);
-    setShowForm(false);
+  const handleAdd = async (data) => {
+    const ok = await addCert(data);
+    if (ok) setShowForm(false);
   };
 
-  const handleEdit = (data) => {
-    setCertificates(certificates.map(c => c.id === editingId ? { ...data, id: editingId } : c));
-    setEditingId(null);
+  const handleEdit = async (data) => {
+    const ok = await updateCert(editingId, data);
+    if (ok) setEditingId(null);
   };
 
-  const handleDelete = (id) => {
-    setCertificates(certificates.filter(c => c.id !== id));
+  const handleDelete = async (id) => {
+    await removeCert(id);
     setDeleteConfirm(null);
   };
 
@@ -174,31 +188,21 @@ export default function Certificates() {
           A collection of my certificates and achievements — earned through continuous learning and training.
         </p>
 
-        {/* Admin controls */}
+        {/* Add / Admin buttons */}
         {!showForm && editingId === null && (
           <div className="flex justify-center items-center gap-3 mb-10">
             <button
               onClick={() => requireAuth(() => setShowForm(true))}
               className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-semibold rounded-xl hover:opacity-90 transition shadow-lg shadow-blue-500/20"
             >
-              <Plus size={18} />
-              Add Certificate
+              <Plus size={18} /> Add Certificate
             </button>
-            {unlocked && (
-              <button
-                onClick={lock}
-                className="flex items-center gap-1.5 px-4 py-3 rounded-xl border border-slate-300 text-slate-500 text-sm hover:bg-slate-50 transition"
-                title="Lock admin session"
-              >
+            {unlocked ? (
+              <button onClick={lock} className="flex items-center gap-1.5 px-4 py-3 rounded-xl border border-slate-300 text-slate-500 text-sm hover:bg-slate-50 transition">
                 <LogOut size={15} /> Lock
               </button>
-            )}
-            {!unlocked && (
-              <button
-                onClick={() => setShowGate(true)}
-                className="flex items-center gap-1.5 px-4 py-3 rounded-xl border border-blue-300 text-blue-600 text-sm hover:bg-blue-50 transition"
-                title="Admin login"
-              >
+            ) : (
+              <button onClick={() => setShowGate(true)} className="flex items-center gap-1.5 px-4 py-3 rounded-xl border border-blue-300 text-blue-600 text-sm hover:bg-blue-50 transition">
                 <Lock size={15} /> Admin
               </button>
             )}
@@ -207,12 +211,19 @@ export default function Certificates() {
 
         {showForm && (
           <div className="mb-10">
-            <CertForm onSave={handleAdd} onCancel={() => setShowForm(false)} />
+            <CertForm onSave={handleAdd} onCancel={() => setShowForm(false)} saving={saving} />
           </div>
         )}
 
-        {/* Cards */}
-        {certificates.length === 0 && !showForm && (
+        {/* Loading */}
+        {loading && (
+          <div className="flex justify-center py-20 text-slate-400">
+            <Loader2 size={32} className="animate-spin" />
+          </div>
+        )}
+
+        {/* Empty state */}
+        {!loading && certificates.length === 0 && !showForm && (
           <div className="text-center py-20 text-slate-400">
             <Award size={48} className="mx-auto mb-4 opacity-30" />
             <p className="text-lg font-medium">No certificates yet</p>
@@ -220,21 +231,22 @@ export default function Certificates() {
           </div>
         )}
 
+        {/* Cards */}
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-5">
           {certificates.map((cert) => (
             <div key={cert.id}>
               {editingId === cert.id ? (
-                <CertForm initial={cert} onSave={handleEdit} onCancel={() => setEditingId(null)} />
+                <CertForm initial={cert} onSave={handleEdit} onCancel={() => setEditingId(null)} saving={saving} />
               ) : (
                 <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm card-hover group">
                   {/* Thumbnail */}
-                  <div className="h-36 bg-gradient-to-br from-blue-50 to-indigo-50 flex items-center justify-center relative">
-                    {cert.fileData && cert.fileType !== 'application/pdf' ? (
-                      <img src={cert.fileData} alt={cert.title} className="w-full h-full object-cover" />
+                  <div className="h-36 bg-gradient-to-br from-blue-50 to-indigo-50 flex items-center justify-center relative overflow-hidden">
+                    {cert.file_url && cert.file_type !== 'application/pdf' ? (
+                      <img src={cert.file_url} alt={cert.title} className="w-full h-full object-cover" />
                     ) : (
                       <Award size={40} className="text-blue-200" />
                     )}
-                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition" />
+                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/5 transition" />
                   </div>
                   <div className="p-5">
                     <h3 className="font-bold text-slate-900 text-sm leading-snug mb-1">{cert.title}</h3>
@@ -271,28 +283,25 @@ export default function Certificates() {
           ))}
         </div>
 
-        {/* Delete confirm */}
+        {/* Delete confirmation */}
         {deleteConfirm && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
             <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full">
               <div className="flex items-center gap-3 mb-4">
-                <div className="w-10 h-10 rounded-xl bg-red-100 flex items-center justify-center">
-                  <Trash2 size={18} className="text-red-500" />
-                </div>
+                <div className="w-10 h-10 rounded-xl bg-red-100 flex items-center justify-center"><Trash2 size={18} className="text-red-500" /></div>
                 <h3 className="font-bold text-slate-900">Delete Certificate?</h3>
               </div>
-              <p className="text-slate-500 text-sm mb-6">This action cannot be undone.</p>
+              <p className="text-slate-500 text-sm mb-6">This will permanently remove it from the database.</p>
               <div className="flex gap-3">
                 <button
                   onClick={() => handleDelete(deleteConfirm)}
-                  className="flex-1 py-2.5 bg-red-500 text-white font-semibold rounded-xl text-sm hover:bg-red-600 transition"
+                  disabled={saving}
+                  className="flex-1 py-2.5 bg-red-500 text-white font-semibold rounded-xl text-sm hover:bg-red-600 transition flex items-center justify-center gap-2 disabled:opacity-60"
                 >
-                  Delete
+                  {saving && <Loader2 size={14} className="animate-spin" />}
+                  {saving ? 'Deleting…' : 'Delete'}
                 </button>
-                <button
-                  onClick={() => setDeleteConfirm(null)}
-                  className="flex-1 py-2.5 border border-slate-300 text-slate-600 font-semibold rounded-xl text-sm hover:bg-slate-50 transition"
-                >
+                <button onClick={() => setDeleteConfirm(null)} disabled={saving} className="flex-1 py-2.5 border border-slate-300 text-slate-600 font-semibold rounded-xl text-sm hover:bg-slate-50 transition disabled:opacity-60">
                   Cancel
                 </button>
               </div>
@@ -303,6 +312,8 @@ export default function Certificates() {
         {previewCert && <CertModal cert={previewCert} onClose={() => setPreviewCert(null)} />}
         {showGate && <PasswordGate onSuccess={handleUnlock} onClose={() => { setShowGate(false); setPendingAction(null); }} />}
       </div>
+
+      {toast && <Toast message={toast.message} type={toast.type} onClose={() => {}} />}
     </section>
   );
 }

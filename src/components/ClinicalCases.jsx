@@ -1,14 +1,19 @@
 import { useState, useRef } from 'react';
-import { Plus, Pencil, Trash2, X, Upload, Search, ChevronLeft, ChevronRight, Images, Lock, LogOut } from 'lucide-react';
-import { useCases } from '../hooks/useStorage';
+import {
+  Plus, Pencil, Trash2, X, Upload, Search,
+  ChevronLeft, ChevronRight, Images, Lock, LogOut, Loader2
+} from 'lucide-react';
+import { useSupabaseCases } from '../hooks/useSupabaseCases';
 import { useAuth } from '../hooks/useAuth';
 import PasswordGate from './PasswordGate';
+import Toast from './Toast';
 
 const CATEGORIES = [
   'All', 'Implantology', 'Restorative', 'Endodontics', 'Prosthodontics',
   'Aesthetic', 'Orthodontics', 'Surgery', 'Other'
 ];
 
+// ── Image upload field — stores { preview, file } ─────────────────────────
 function ImageUploadField({ label, value, onChange }) {
   const ref = useRef();
   return (
@@ -18,8 +23,8 @@ function ImageUploadField({ label, value, onChange }) {
         className="relative w-full h-32 rounded-xl border-2 border-dashed border-blue-300 hover:border-blue-500 bg-blue-50 cursor-pointer overflow-hidden transition"
         onClick={() => ref.current.click()}
       >
-        {value ? (
-          <img src={value} alt={label} className="w-full h-full object-cover" />
+        {value?.preview ? (
+          <img src={value.preview} alt={label} className="w-full h-full object-cover" />
         ) : (
           <div className="flex flex-col items-center justify-center h-full text-blue-400 text-xs gap-1">
             <Upload size={20} />
@@ -34,9 +39,7 @@ function ImageUploadField({ label, value, onChange }) {
           onChange={(e) => {
             const file = e.target.files[0];
             if (!file) return;
-            const reader = new FileReader();
-            reader.onload = (ev) => onChange(ev.target.result);
-            reader.readAsDataURL(file);
+            onChange({ preview: URL.createObjectURL(file), file });
           }}
         />
       </div>
@@ -44,27 +47,31 @@ function ImageUploadField({ label, value, onChange }) {
   );
 }
 
-function CaseForm({ initial, onSave, onCancel }) {
+// ── Case form ─────────────────────────────────────────────────────────────
+function CaseForm({ initial, onSave, onCancel, saving }) {
   const [title, setTitle] = useState(initial?.title || '');
   const [category, setCategory] = useState(initial?.category || 'Implantology');
-  const [desc, setDesc] = useState(initial?.desc || '');
+  const [desc, setDesc] = useState(initial?.description || '');
   const [date, setDate] = useState(initial?.date || '');
-  const [before, setBefore] = useState(initial?.before || null);
-  const [after, setAfter] = useState(initial?.after || null);
-  const [extras, setExtras] = useState(initial?.extras || []);
+  // Each image field: { preview: string, file: File|null } or null
+  const [before, setBefore] = useState(
+    initial?.before_url ? { preview: initial.before_url, file: null } : null
+  );
+  const [after, setAfter] = useState(
+    initial?.after_url ? { preview: initial.after_url, file: null } : null
+  );
+  const [extras, setExtras] = useState(
+    (initial?.extras || []).map(url => ({ preview: url, file: null }))
+  );
   const extrasRef = useRef();
 
   const handleExtras = (e) => {
     const files = Array.from(e.target.files);
-    Promise.all(
-      files.map(
-        file => new Promise(resolve => {
-          const reader = new FileReader();
-          reader.onload = (ev) => resolve(ev.target.result);
-          reader.readAsDataURL(file);
-        })
-      )
-    ).then(results => setExtras(prev => [...prev, ...results]));
+    const newItems = files.map(file => ({
+      preview: URL.createObjectURL(file),
+      file,
+    }));
+    setExtras(prev => [...prev, ...newItems]);
   };
 
   const handleSubmit = (e) => {
@@ -138,9 +145,9 @@ function CaseForm({ initial, onSave, onCancel }) {
         </button>
         {extras.length > 0 && (
           <div className="flex flex-wrap gap-2 mt-3">
-            {extras.map((src, i) => (
+            {extras.map((item, i) => (
               <div key={i} className="relative w-16 h-16 rounded-lg overflow-hidden border border-slate-200 group">
-                <img src={src} className="w-full h-full object-cover" alt="" />
+                <img src={item.preview} className="w-full h-full object-cover" alt="" />
                 <button
                   type="button"
                   onClick={() => setExtras(extras.filter((_, j) => j !== i))}
@@ -155,10 +162,20 @@ function CaseForm({ initial, onSave, onCancel }) {
       </div>
 
       <div className="flex gap-3 pt-2">
-        <button type="submit" className="px-6 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-sm font-semibold rounded-xl hover:opacity-90 transition">
-          Save Case
+        <button
+          type="submit"
+          disabled={saving}
+          className="flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-sm font-semibold rounded-xl hover:opacity-90 transition disabled:opacity-60"
+        >
+          {saving && <Loader2 size={15} className="animate-spin" />}
+          {saving ? 'Saving…' : 'Save Case'}
         </button>
-        <button type="button" onClick={onCancel} className="px-6 py-2.5 border border-slate-300 text-slate-600 text-sm font-semibold rounded-xl hover:bg-slate-100 transition">
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={saving}
+          className="px-6 py-2.5 border border-slate-300 text-slate-600 text-sm font-semibold rounded-xl hover:bg-slate-100 transition disabled:opacity-60"
+        >
           Cancel
         </button>
       </div>
@@ -166,27 +183,22 @@ function CaseForm({ initial, onSave, onCancel }) {
   );
 }
 
+// ── Lightbox ──────────────────────────────────────────────────────────────
 function CaseLightbox({ caseData, onClose }) {
   const [imgIdx, setImgIdx] = useState(0);
   if (!caseData) return null;
 
   const allImages = [
-    caseData.before && { src: caseData.before, label: 'Before' },
-    caseData.after && { src: caseData.after, label: 'After' },
+    caseData.before_url && { src: caseData.before_url, label: 'Before' },
+    caseData.after_url  && { src: caseData.after_url,  label: 'After'  },
     ...(caseData.extras || []).map((src, i) => ({ src, label: `Photo ${i + 1}` })),
   ].filter(Boolean);
 
   const current = allImages[imgIdx];
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md"
-      onClick={onClose}
-    >
-      <div
-        className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full overflow-hidden"
-        onClick={e => e.stopPropagation()}
-      >
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full overflow-hidden" onClick={e => e.stopPropagation()}>
         <div className="flex items-start justify-between p-5 border-b border-slate-100">
           <div>
             <h3 className="font-bold text-slate-900">{caseData.title}</h3>
@@ -195,9 +207,7 @@ function CaseLightbox({ caseData, onClose }) {
               {caseData.date && <span className="text-slate-400 text-xs">{caseData.date}</span>}
             </div>
           </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400">
-            <X size={20} />
-          </button>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400"><X size={20} /></button>
         </div>
 
         {allImages.length > 0 ? (
@@ -205,36 +215,23 @@ function CaseLightbox({ caseData, onClose }) {
             <div className="relative bg-slate-900 h-72 sm:h-96 flex items-center justify-center">
               <img src={current.src} alt={current.label} className="max-h-full max-w-full object-contain" />
               {current.label && (
-                <span className="absolute bottom-3 left-3 px-2.5 py-1 bg-black/60 text-white text-xs font-semibold rounded-lg">
-                  {current.label}
-                </span>
+                <span className="absolute bottom-3 left-3 px-2.5 py-1 bg-black/60 text-white text-xs font-semibold rounded-lg">{current.label}</span>
               )}
               {allImages.length > 1 && (
                 <>
-                  <button
-                    onClick={() => setImgIdx((imgIdx - 1 + allImages.length) % allImages.length)}
-                    className="absolute left-3 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-black/50 flex items-center justify-center text-white hover:bg-black/70 transition"
-                  >
+                  <button onClick={() => setImgIdx((imgIdx - 1 + allImages.length) % allImages.length)} className="absolute left-3 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-black/50 flex items-center justify-center text-white hover:bg-black/70 transition">
                     <ChevronLeft size={18} />
                   </button>
-                  <button
-                    onClick={() => setImgIdx((imgIdx + 1) % allImages.length)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-black/50 flex items-center justify-center text-white hover:bg-black/70 transition"
-                  >
+                  <button onClick={() => setImgIdx((imgIdx + 1) % allImages.length)} className="absolute right-3 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-black/50 flex items-center justify-center text-white hover:bg-black/70 transition">
                     <ChevronRight size={18} />
                   </button>
                 </>
               )}
             </div>
-
             {allImages.length > 1 && (
               <div className="flex gap-2 p-3 overflow-x-auto bg-slate-50">
                 {allImages.map((img, i) => (
-                  <button
-                    key={i}
-                    onClick={() => setImgIdx(i)}
-                    className={`shrink-0 w-14 h-14 rounded-lg overflow-hidden border-2 transition ${i === imgIdx ? 'border-blue-500' : 'border-transparent'}`}
-                  >
+                  <button key={i} onClick={() => setImgIdx(i)} className={`shrink-0 w-14 h-14 rounded-lg overflow-hidden border-2 transition ${i === imgIdx ? 'border-blue-500' : 'border-transparent'}`}>
                     <img src={img.src} className="w-full h-full object-cover" alt="" />
                   </button>
                 ))}
@@ -242,14 +239,12 @@ function CaseLightbox({ caseData, onClose }) {
             )}
           </div>
         ) : (
-          <div className="h-48 flex items-center justify-center bg-slate-50 text-slate-400 text-sm">
-            No images uploaded for this case.
-          </div>
+          <div className="h-48 flex items-center justify-center bg-slate-50 text-slate-400 text-sm">No images uploaded for this case.</div>
         )}
 
-        {caseData.desc && (
+        {caseData.description && (
           <div className="px-5 py-4 border-t border-slate-100">
-            <p className="text-slate-600 text-sm leading-relaxed">{caseData.desc}</p>
+            <p className="text-slate-600 text-sm leading-relaxed">{caseData.description}</p>
           </div>
         )}
       </div>
@@ -257,8 +252,9 @@ function CaseLightbox({ caseData, onClose }) {
   );
 }
 
+// ── Main Component ────────────────────────────────────────────────────────
 export default function ClinicalCases() {
-  const [cases, setCases] = useCases();
+  const { cases, loading, saving, toast, addCase, updateCase, removeCase } = useSupabaseCases();
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [activeCase, setActiveCase] = useState(null);
@@ -284,25 +280,26 @@ export default function ClinicalCases() {
     return ok;
   };
 
-  const handleAdd = (data) => {
-    setCases([...cases, { ...data, id: Date.now().toString() }]);
-    setShowForm(false);
+  const handleAdd = async (data) => {
+    const ok = await addCase(data);
+    if (ok) setShowForm(false);
   };
 
-  const handleEdit = (data) => {
-    setCases(cases.map(c => c.id === editingId ? { ...data, id: editingId } : c));
-    setEditingId(null);
+  const handleEdit = async (data) => {
+    const ok = await updateCase(editingId, data);
+    if (ok) setEditingId(null);
   };
 
-  const handleDelete = (id) => {
-    setCases(cases.filter(c => c.id !== id));
+  const handleDelete = async (id) => {
+    await removeCase(id);
     setDeleteConfirm(null);
   };
 
   const filtered = cases.filter(c => {
     const matchCat = filterCat === 'All' || c.category === filterCat;
-    const matchSearch = c.title.toLowerCase().includes(search.toLowerCase()) ||
-      (c.desc || '').toLowerCase().includes(search.toLowerCase());
+    const matchSearch =
+      c.title.toLowerCase().includes(search.toLowerCase()) ||
+      (c.description || '').toLowerCase().includes(search.toLowerCase());
     return matchCat && matchSearch;
   });
 
@@ -319,7 +316,7 @@ export default function ClinicalCases() {
           A collection of my real clinical work — browse through my cases below.
         </p>
 
-        {/* Controls */}
+        {/* Search + Filter */}
         <div className="flex flex-col sm:flex-row gap-4 mb-8">
           <div className="relative flex-1">
             <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -347,30 +344,21 @@ export default function ClinicalCases() {
           </div>
         </div>
 
+        {/* Add / Admin buttons */}
         {!showForm && editingId === null && (
           <div className="flex justify-center items-center gap-3 mb-10">
             <button
               onClick={() => requireAuth(() => setShowForm(true))}
               className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-semibold rounded-xl hover:opacity-90 transition shadow-lg shadow-blue-500/20"
             >
-              <Plus size={18} />
-              Add Clinical Case
+              <Plus size={18} /> Add Clinical Case
             </button>
-            {unlocked && (
-              <button
-                onClick={lock}
-                className="flex items-center gap-1.5 px-4 py-3 rounded-xl border border-slate-300 text-slate-500 text-sm hover:bg-slate-50 transition"
-                title="Lock admin session"
-              >
+            {unlocked ? (
+              <button onClick={lock} className="flex items-center gap-1.5 px-4 py-3 rounded-xl border border-slate-300 text-slate-500 text-sm hover:bg-slate-50 transition">
                 <LogOut size={15} /> Lock
               </button>
-            )}
-            {!unlocked && (
-              <button
-                onClick={() => setShowGate(true)}
-                className="flex items-center gap-1.5 px-4 py-3 rounded-xl border border-blue-300 text-blue-600 text-sm hover:bg-blue-50 transition"
-                title="Admin login"
-              >
+            ) : (
+              <button onClick={() => setShowGate(true)} className="flex items-center gap-1.5 px-4 py-3 rounded-xl border border-blue-300 text-blue-600 text-sm hover:bg-blue-50 transition">
                 <Lock size={15} /> Admin
               </button>
             )}
@@ -379,61 +367,59 @@ export default function ClinicalCases() {
 
         {showForm && (
           <div className="mb-10">
-            <CaseForm onSave={handleAdd} onCancel={() => setShowForm(false)} />
+            <CaseForm onSave={handleAdd} onCancel={() => setShowForm(false)} saving={saving} />
           </div>
         )}
 
-        {filtered.length === 0 && !showForm && (
+        {/* Loading skeleton */}
+        {loading && (
+          <div className="flex justify-center py-20 text-slate-400">
+            <Loader2 size={32} className="animate-spin" />
+          </div>
+        )}
+
+        {/* Empty state */}
+        {!loading && filtered.length === 0 && !showForm && (
           <div className="text-center py-20 text-slate-400">
             <Images size={48} className="mx-auto mb-4 opacity-30" />
-            <p className="text-lg font-medium">
-              {cases.length === 0 ? 'No cases yet' : 'No matching cases'}
-            </p>
-            <p className="text-sm mt-1">
-              {cases.length === 0
-                ? 'Click "Add Clinical Case" to document your first case.'
-                : 'Try adjusting your search or filter.'}
-            </p>
+            <p className="text-lg font-medium">{cases.length === 0 ? 'No cases yet' : 'No matching cases'}</p>
+            <p className="text-sm mt-1">{cases.length === 0 ? 'Click "Add Clinical Case" to document your first case.' : 'Try adjusting your search or filter.'}</p>
           </div>
         )}
 
+        {/* Cases grid */}
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-5">
           {filtered.map(caseItem => (
             <div key={caseItem.id}>
               {editingId === caseItem.id ? (
-                <CaseForm initial={caseItem} onSave={handleEdit} onCancel={() => setEditingId(null)} />
+                <CaseForm initial={caseItem} onSave={handleEdit} onCancel={() => setEditingId(null)} saving={saving} />
               ) : (
                 <div
                   className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm card-hover group cursor-pointer"
                   onClick={() => setActiveCase(caseItem)}
                 >
-                  {/* Image preview */}
+                  {/* Before/After preview */}
                   <div className="relative h-44 bg-gradient-to-br from-slate-100 to-slate-200 overflow-hidden">
-                    {caseItem.after || caseItem.before ? (
+                    {caseItem.after_url || caseItem.before_url ? (
                       <div className="flex h-full">
-                        {caseItem.before && (
+                        {caseItem.before_url && (
                           <div className="flex-1 relative overflow-hidden">
-                            <img src={caseItem.before} alt="Before" className="w-full h-full object-cover" />
+                            <img src={caseItem.before_url} alt="Before" className="w-full h-full object-cover" />
                             <span className="absolute bottom-2 left-2 px-2 py-0.5 bg-black/60 text-white text-xs rounded font-medium">Before</span>
                           </div>
                         )}
-                        {caseItem.after && (
+                        {caseItem.after_url && (
                           <div className="flex-1 relative overflow-hidden">
-                            <img src={caseItem.after} alt="After" className="w-full h-full object-cover" />
+                            <img src={caseItem.after_url} alt="After" className="w-full h-full object-cover" />
                             <span className="absolute bottom-2 right-2 px-2 py-0.5 bg-blue-600/90 text-white text-xs rounded font-medium">After</span>
                           </div>
                         )}
                       </div>
                     ) : (
-                      <div className="flex items-center justify-center h-full text-slate-300">
-                        <Images size={36} />
-                      </div>
+                      <div className="flex items-center justify-center h-full text-slate-300"><Images size={36} /></div>
                     )}
-                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/5 transition" />
-                    {(caseItem.extras?.length > 0) && (
-                      <span className="absolute top-2 right-2 px-2 py-0.5 bg-black/60 text-white text-xs rounded-full">
-                        +{caseItem.extras.length}
-                      </span>
+                    {caseItem.extras?.length > 0 && (
+                      <span className="absolute top-2 right-2 px-2 py-0.5 bg-black/60 text-white text-xs rounded-full">+{caseItem.extras.length}</span>
                     )}
                   </div>
 
@@ -442,21 +428,15 @@ export default function ClinicalCases() {
                       <h3 className="font-bold text-slate-900 text-sm leading-snug flex-1">{caseItem.title}</h3>
                       <span className="px-2 py-0.5 bg-blue-50 text-blue-600 text-xs font-semibold rounded shrink-0">{caseItem.category}</span>
                     </div>
-                    {caseItem.desc && <p className="text-slate-500 text-xs leading-relaxed line-clamp-2">{caseItem.desc}</p>}
+                    {caseItem.description && <p className="text-slate-500 text-xs leading-relaxed line-clamp-2">{caseItem.description}</p>}
                     {caseItem.date && <p className="text-slate-400 text-xs mt-2">{caseItem.date}</p>}
 
                     {unlocked && (
                       <div className="flex gap-2 mt-4 pt-4 border-t border-slate-100" onClick={e => e.stopPropagation()}>
-                        <button
-                          onClick={() => setEditingId(caseItem.id)}
-                          className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 text-slate-600 text-xs font-semibold rounded-lg hover:bg-slate-100 transition"
-                        >
+                        <button onClick={() => setEditingId(caseItem.id)} className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 text-slate-600 text-xs font-semibold rounded-lg hover:bg-slate-100 transition">
                           <Pencil size={12} /> Edit
                         </button>
-                        <button
-                          onClick={() => setDeleteConfirm(caseItem.id)}
-                          className="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 text-red-500 text-xs font-semibold rounded-lg hover:bg-red-100 transition ml-auto"
-                        >
+                        <button onClick={() => setDeleteConfirm(caseItem.id)} className="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 text-red-500 text-xs font-semibold rounded-lg hover:bg-red-100 transition ml-auto">
                           <Trash2 size={12} /> Delete
                         </button>
                       </div>
@@ -468,28 +448,25 @@ export default function ClinicalCases() {
           ))}
         </div>
 
-        {/* Delete confirm */}
+        {/* Delete confirmation */}
         {deleteConfirm && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
             <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full">
               <div className="flex items-center gap-3 mb-4">
-                <div className="w-10 h-10 rounded-xl bg-red-100 flex items-center justify-center">
-                  <Trash2 size={18} className="text-red-500" />
-                </div>
+                <div className="w-10 h-10 rounded-xl bg-red-100 flex items-center justify-center"><Trash2 size={18} className="text-red-500" /></div>
                 <h3 className="font-bold text-slate-900">Delete Case?</h3>
               </div>
-              <p className="text-slate-500 text-sm mb-6">This will permanently delete the case and all its images.</p>
+              <p className="text-slate-500 text-sm mb-6">This will permanently delete the case and all its images from the database.</p>
               <div className="flex gap-3">
                 <button
                   onClick={() => handleDelete(deleteConfirm)}
-                  className="flex-1 py-2.5 bg-red-500 text-white font-semibold rounded-xl text-sm hover:bg-red-600 transition"
+                  disabled={saving}
+                  className="flex-1 py-2.5 bg-red-500 text-white font-semibold rounded-xl text-sm hover:bg-red-600 transition flex items-center justify-center gap-2 disabled:opacity-60"
                 >
-                  Delete
+                  {saving && <Loader2 size={14} className="animate-spin" />}
+                  {saving ? 'Deleting…' : 'Delete'}
                 </button>
-                <button
-                  onClick={() => setDeleteConfirm(null)}
-                  className="flex-1 py-2.5 border border-slate-300 text-slate-600 font-semibold rounded-xl text-sm hover:bg-slate-50 transition"
-                >
+                <button onClick={() => setDeleteConfirm(null)} disabled={saving} className="flex-1 py-2.5 border border-slate-300 text-slate-600 font-semibold rounded-xl text-sm hover:bg-slate-50 transition disabled:opacity-60">
                   Cancel
                 </button>
               </div>
@@ -500,6 +477,8 @@ export default function ClinicalCases() {
         <CaseLightbox caseData={activeCase} onClose={() => setActiveCase(null)} />
         {showGate && <PasswordGate onSuccess={handleUnlock} onClose={() => { setShowGate(false); setPendingAction(null); }} />}
       </div>
+
+      {toast && <Toast message={toast.message} type={toast.type} onClose={() => {}} />}
     </section>
   );
 }
