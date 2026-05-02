@@ -1,9 +1,16 @@
 import { useState, useRef } from 'react';
 import {
   Plus, Pencil, Trash2, X, Upload, Search,
-  ChevronLeft, ChevronRight, Images, Lock, LogOut, Loader2,
-  ArrowUp, ArrowDown,
+  ChevronLeft, ChevronRight, Images, Lock, LogOut, Loader2, GripVertical,
 } from 'lucide-react';
+import {
+  DndContext, closestCenter, PointerSensor, TouchSensor,
+  useSensor, useSensors, DragOverlay,
+} from '@dnd-kit/core';
+import {
+  SortableContext, useSortable, rectSortingStrategy, arrayMove,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import { useSupabaseCases } from '../hooks/useSupabaseCases';
 import { useAuth } from '../hooks/useAuth';
 import { useContent } from '../hooks/useContent';
@@ -254,6 +261,108 @@ function CaseLightbox({ caseData, onClose }) {
   );
 }
 
+// ── Shared card inner content ─────────────────────────────────────────────
+function CaseCardInner({ caseItem, unlocked, onClick, onEdit, onDelete, isOverlay, dragHandleProps }) {
+  if (!caseItem) return null;
+  return (
+    <div
+      className={`bg-white rounded-2xl border overflow-hidden shadow-sm group ${
+        isOverlay
+          ? 'border-blue-400 shadow-2xl rotate-1 opacity-95 cursor-grabbing'
+          : 'border-slate-200 card-hover cursor-pointer'
+      }`}
+      onClick={onClick}
+    >
+      {/* Before/After preview */}
+      <div className="relative h-44 bg-gradient-to-br from-slate-100 to-slate-200 overflow-hidden">
+        {unlocked && !isOverlay && (
+          <div
+            {...dragHandleProps}
+            onClick={e => e.stopPropagation()}
+            className="absolute top-2 left-2 z-10 p-1.5 rounded-lg bg-black/40 text-white cursor-grab active:cursor-grabbing hover:bg-black/60 transition"
+            title="Drag to reorder"
+          >
+            <GripVertical size={16} />
+          </div>
+        )}
+        {caseItem.after_url || caseItem.before_url ? (
+          <div className="flex h-full">
+            {caseItem.before_url && (
+              <div className="flex-1 relative overflow-hidden">
+                <img src={caseItem.before_url} alt="Before" className="w-full h-full object-cover" />
+                <span className="absolute bottom-2 left-2 px-2 py-0.5 bg-black/60 text-white text-xs rounded font-medium">Before</span>
+              </div>
+            )}
+            {caseItem.after_url && (
+              <div className="flex-1 relative overflow-hidden">
+                <img src={caseItem.after_url} alt="After" className="w-full h-full object-cover" />
+                <span className="absolute bottom-2 right-2 px-2 py-0.5 bg-blue-600/90 text-white text-xs rounded font-medium">After</span>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="flex items-center justify-center h-full text-slate-300"><Images size={36} /></div>
+        )}
+        {caseItem.extras?.length > 0 && (
+          <span className="absolute top-2 right-2 px-2 py-0.5 bg-black/60 text-white text-xs rounded-full">+{caseItem.extras.length}</span>
+        )}
+      </div>
+
+      <div className="p-5">
+        <div className="flex items-start justify-between gap-2 mb-2">
+          <h3 className="font-bold text-slate-900 text-sm leading-snug flex-1">{caseItem.title}</h3>
+          <span className="px-2 py-0.5 bg-blue-50 text-blue-600 text-xs font-semibold rounded shrink-0">{caseItem.category}</span>
+        </div>
+        {caseItem.description && <p className="text-slate-500 text-xs leading-relaxed line-clamp-2">{caseItem.description}</p>}
+        {caseItem.date && <p className="text-slate-400 text-xs mt-2">{caseItem.date}</p>}
+
+        {unlocked && !isOverlay && (
+          <div className="flex gap-2 mt-4 pt-4 border-t border-slate-100" onClick={e => e.stopPropagation()}>
+            <button onClick={onEdit} className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 text-slate-600 text-xs font-semibold rounded-lg hover:bg-slate-100 transition">
+              <Pencil size={12} /> Edit
+            </button>
+            <button onClick={onDelete} className="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 text-red-500 text-xs font-semibold rounded-lg hover:bg-red-100 transition ml-auto">
+              <Trash2 size={12} /> Delete
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Sortable wrapper ──────────────────────────────────────────────────────
+function SortableCaseCard({ caseItem, unlocked, editingId, saving, onEdit, onCancelEdit, onSaveEdit, onDelete, onClick, isDragging }) {
+  const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: caseItem.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.3 : 1,
+  };
+
+  if (editingId === caseItem.id) {
+    return (
+      <div ref={setNodeRef} style={style}>
+        <CaseForm initial={caseItem} onSave={onSaveEdit} onCancel={onCancelEdit} saving={saving} />
+      </div>
+    );
+  }
+
+  return (
+    <div ref={setNodeRef} style={style}>
+      <CaseCardInner
+        caseItem={caseItem}
+        unlocked={unlocked}
+        onClick={onClick}
+        onEdit={onEdit}
+        onDelete={onDelete}
+        dragHandleProps={{ ...attributes, ...listeners }}
+      />
+    </div>
+  );
+}
+
 // ── Main Component ────────────────────────────────────────────────────────
 export default function ClinicalCases() {
   const { cases, loading, saving, toast, addCase, updateCase, removeCase } = useSupabaseCases();
@@ -268,6 +377,13 @@ export default function ClinicalCases() {
   const [pendingAction, setPendingAction] = useState(null);
   const { unlocked, unlock, lock } = useAuth();
 
+  const [activeDragId, setActiveDragId] = useState(null);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(TouchSensor,   { activationConstraint: { delay: 150, tolerance: 5 } }),
+  );
+
   // Build a stable order: stored IDs first, then any new cases appended
   const getFullOrder = () => {
     const stored = Array.isArray(casesOrder) ? casesOrder : [];
@@ -276,15 +392,14 @@ export default function ClinicalCases() {
     return [...stored, ...remaining];
   };
 
-  const moveCase = async (id, direction) => {
+  const handleDragEnd = async ({ active, over }) => {
+    setActiveDragId(null);
+    if (!over || active.id === over.id) return;
     const order = getFullOrder();
-    const idx = order.indexOf(id);
-    if (idx === -1) return;
-    const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
-    if (swapIdx < 0 || swapIdx >= order.length) return;
-    const next = [...order];
-    [next[idx], next[swapIdx]] = [next[swapIdx], next[idx]];
-    await saveOrder(next);
+    const oldIdx = order.indexOf(active.id);
+    const newIdx = order.indexOf(over.id);
+    if (oldIdx === -1 || newIdx === -1) return;
+    await saveOrder(arrayMove(order, oldIdx, newIdx));
   };
 
   const requireAuth = (action) => {
@@ -420,82 +535,57 @@ export default function ClinicalCases() {
           </div>
         )}
 
-        {/* Cases grid */}
-        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-5">
-          {filtered.map(caseItem => (
-            <div key={caseItem.id}>
-              {editingId === caseItem.id ? (
-                <CaseForm initial={caseItem} onSave={handleEdit} onCancel={() => setEditingId(null)} saving={saving} />
-              ) : (
-                <div
-                  className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm card-hover group cursor-pointer"
+        {/* Cases grid — sortable when admin is unlocked */}
+        {unlocked ? (
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragStart={({ active }) => setActiveDragId(active.id)}
+            onDragEnd={handleDragEnd}
+            onDragCancel={() => setActiveDragId(null)}
+          >
+            <SortableContext items={filtered.map(c => c.id)} strategy={rectSortingStrategy}>
+              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-5">
+                {filtered.map(caseItem => (
+                  <SortableCaseCard
+                    key={caseItem.id}
+                    caseItem={caseItem}
+                    unlocked={unlocked}
+                    editingId={editingId}
+                    saving={saving}
+                    onEdit={() => setEditingId(caseItem.id)}
+                    onCancelEdit={() => setEditingId(null)}
+                    onSaveEdit={handleEdit}
+                    onDelete={() => setDeleteConfirm(caseItem.id)}
+                    onClick={() => setActiveCase(caseItem)}
+                    isDragging={activeDragId === caseItem.id}
+                  />
+                ))}
+              </div>
+            </SortableContext>
+            <DragOverlay>
+              {activeDragId ? (
+                <CaseCardInner
+                  caseItem={filtered.find(c => c.id === activeDragId)}
+                  unlocked={false}
+                  isOverlay
+                />
+              ) : null}
+            </DragOverlay>
+          </DndContext>
+        ) : (
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-5">
+            {filtered.map(caseItem => (
+              <div key={caseItem.id}>
+                <CaseCardInner
+                  caseItem={caseItem}
+                  unlocked={false}
                   onClick={() => setActiveCase(caseItem)}
-                >
-                  {/* Before/After preview */}
-                  <div className="relative h-44 bg-gradient-to-br from-slate-100 to-slate-200 overflow-hidden">
-                    {caseItem.after_url || caseItem.before_url ? (
-                      <div className="flex h-full">
-                        {caseItem.before_url && (
-                          <div className="flex-1 relative overflow-hidden">
-                            <img src={caseItem.before_url} alt="Before" className="w-full h-full object-cover" />
-                            <span className="absolute bottom-2 left-2 px-2 py-0.5 bg-black/60 text-white text-xs rounded font-medium">Before</span>
-                          </div>
-                        )}
-                        {caseItem.after_url && (
-                          <div className="flex-1 relative overflow-hidden">
-                            <img src={caseItem.after_url} alt="After" className="w-full h-full object-cover" />
-                            <span className="absolute bottom-2 right-2 px-2 py-0.5 bg-blue-600/90 text-white text-xs rounded font-medium">After</span>
-                          </div>
-                        )}
-                      </div>
-                    ) : (
-                      <div className="flex items-center justify-center h-full text-slate-300"><Images size={36} /></div>
-                    )}
-                    {caseItem.extras?.length > 0 && (
-                      <span className="absolute top-2 right-2 px-2 py-0.5 bg-black/60 text-white text-xs rounded-full">+{caseItem.extras.length}</span>
-                    )}
-                  </div>
-
-                  <div className="p-5">
-                    <div className="flex items-start justify-between gap-2 mb-2">
-                      <h3 className="font-bold text-slate-900 text-sm leading-snug flex-1">{caseItem.title}</h3>
-                      <span className="px-2 py-0.5 bg-blue-50 text-blue-600 text-xs font-semibold rounded shrink-0">{caseItem.category}</span>
-                    </div>
-                    {caseItem.description && <p className="text-slate-500 text-xs leading-relaxed line-clamp-2">{caseItem.description}</p>}
-                    {caseItem.date && <p className="text-slate-400 text-xs mt-2">{caseItem.date}</p>}
-
-                    {unlocked && (
-                      <div className="flex gap-2 mt-4 pt-4 border-t border-slate-100" onClick={e => e.stopPropagation()}>
-                        <button onClick={() => setEditingId(caseItem.id)} className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 text-slate-600 text-xs font-semibold rounded-lg hover:bg-slate-100 transition">
-                          <Pencil size={12} /> Edit
-                        </button>
-                        <div className="flex gap-1">
-                          <button
-                            onClick={() => moveCase(caseItem.id, 'up')}
-                            title="Move up"
-                            className="p-1.5 rounded-lg bg-slate-50 text-slate-500 hover:bg-blue-50 hover:text-blue-600 transition"
-                          >
-                            <ArrowUp size={12} />
-                          </button>
-                          <button
-                            onClick={() => moveCase(caseItem.id, 'down')}
-                            title="Move down"
-                            className="p-1.5 rounded-lg bg-slate-50 text-slate-500 hover:bg-blue-50 hover:text-blue-600 transition"
-                          >
-                            <ArrowDown size={12} />
-                          </button>
-                        </div>
-                        <button onClick={() => setDeleteConfirm(caseItem.id)} className="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 text-red-500 text-xs font-semibold rounded-lg hover:bg-red-100 transition ml-auto">
-                          <Trash2 size={12} /> Delete
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
+                />
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Delete confirmation */}
         {deleteConfirm && (
